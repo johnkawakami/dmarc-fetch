@@ -1,0 +1,17 @@
+{
+  "name": "imap-fetch",
+  "version": "1.0.0",
+  "description": "Connects to a mailbox and fetches matching messages.",
+  "preferGlobal": true,
+  "bin": {
+    "imap-fetch": "index.js"
+  },
+  "scripts": {
+    "test": "test.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "imap-simple": "^1.6.2"
+  }
+}
