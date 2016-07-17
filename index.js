@@ -1,16 +1,17 @@
 #! /usr/bin/env node
 
-var imaps = require('imap-simple');
+const fs= require('fs');
+const imaps = require('imap-simple');
+const crypto = require('crypto');
+const hash = crypto.createHash('sha256');
 
-var config = {
-    imap: {
-        user: 'johnk@riceball.com',
-        password: 'MN23!!',
-        host: 'mail.slaptech.net',
-        port: 993,
-        tls: true
-    }
-};
+try {
+    var config = JSON.parse(fs.readFileSync('./config.json'));
+} catch (err) {
+    console.log('unable to read config file');
+    console.log(err);
+    process.exit(1);
+}
 
 
 imaps.connect(config)
@@ -20,15 +21,17 @@ imaps.connect(config)
     var dig = new IMAPDig(connection);
     search.DMARCReport()
     .then(function (messages) {
-        var m = messages.filter(function(message) {
-            if (message.dmarc.submitter === 'yahoo.com') {
-                return true;
-            } else {
-                return false;
-            }
-        }).map(function(message) {
-            return dig.saveFirstTextPlain({}, message);
-        });
+        var m = messages
+            .filter(function(message) {
+                return (message.dmarc.submitter === 'google.com');
+            })
+            .map(function(message) {
+                return dig.saveZipBody({}, message);
+                // return dig.saveFirstZipAttachment({}, message);
+                //var fn = message.dmarc.reportID + ".txt";
+                //return dig.saveFirstTextPlain({filename:fn}, message);
+            });
+
         return Promise.all(m);
     })
     .then(console.log)
@@ -120,38 +123,95 @@ IMAPSearcher.prototype.DMARCReport = function() {
  * second part bein g the zip file.
  * Yahoo sends a multipart/mixed similar to Hotmail.
  */
-const fs = require('fs');
 
 function IMAPDig(connection) {
     this.directory = '/tmp';
     this.connection = connection;
 }
 IMAPDig.prototype.saveFirstTextPlain = function(config, message) {
+    var connection = this.connection;
     var filename = config.filename || 'text.txt';
     var directory = config.directory || this.directory;
     var filepath = directory + "/" + filename;
-    console.log(filepath);
-    var connection = this.connection;
     var first = message.partsMeta.find(function (element, index, array) {
         return element.type === 'text' && element.subtype === 'plain';
     });
-    console.log(first);
     return connection.getPartData(message, first)
     .then(function (partData) {
-        console.log('got partData');
-        return fs.writeFile(filepath, 
-                            partData, 
-                            {encoding:'UTF8', flag:'w'});
+        fs.writeFileSync(filepath, partData, {flag:'w'});
+        return filepath;
     })
     .catch(function(err) {
         console.log(err);
     });
 };
 
+/*
+ * Yahoo and Hotmail
+ */
 IMAPDig.prototype.saveFirstZipAttachment = function(config, message) {
-    this.directory = config.directory | this.directory;
+    var connection = this.connection;
+    var directory = config.directory || this.directory;
+    var first = message.partsMeta.find(function (element, index, array) {
+        return element.type === 'application' && 
+            ( element.subtype === 'x-zip-compressed' || 
+                element.subtype === 'zip-compressed' );
+    });
+    console.log(first);
+    return connection.getPartData(message, first)
+    .then(function(partData) {
+        var filename = config.filename || 
+            first.disposition.params.filename || 
+            'attachment.zip';
+        var filepath = directory + "/" + filename;
+        console.log(filepath);
+        fs.writeFileSync(filepath, partData, {flag:'w'});
+        return filepath;
+    })
+    .catch(function(err) {
+    });
 };
 
+/*
+ * Gmail
+ */
 IMAPDig.prototype.saveZipBody = function(config, message) {
-    this.directory = config.directory | this.directory;
+    var connection = this.connection;
+    var directory = config.directory || this.directory;
+    /*
+     * fixme
+     * Here we have to read the header objects to find
+     * the filename, mime type, etc.
+     * Headers are:
+     *
+     * Content-Type: application/zip; name="....zip"
+     * Content-Disposition: attachment; filename="....zip"
+     * Content-Transfer-Encoding: base64
+     */
+    //var subject = a.parts[0].body.subject;
+    // find the headers parts
+    var headers = message.parts.filter(function (a) {
+        return (a.which === 'HEADER');
+    });
+    console.log(headers[0].body);
+    return connection.getPartData(message)
+    .then(function(partData) {
+        var filename = config.filename || 
+            message.headers.filename || 
+            'attachment.zip';
+        var filepath = directory + "/" + filename;
+        console.log(filepath);
+        // fs.writeFileSync(filepath, partData, {flag:'w'});
+        return filepath;
+    })
+    .catch(function(err) {
+    });
 };
+
+/**
+ * Input looks like:
+ * [ 'application/zip; \tname="google.com!riceball.com!1468540800!1468627199.zip"' ]
+ * @returns { value: value, attributes: { name: value, ... }}
+ */
+function parseEmailHeaderLine(line) {
+}

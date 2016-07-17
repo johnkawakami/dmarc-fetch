@@ -1,0 +1,9 @@
+{
+    imap: {
+        user: 'johnk@example.com',
+        password: '',
+        host: 'smtp.example.com',
+        port: 993,
+        tls: true
+    }
+}
