@@ -6,7 +6,7 @@ const zipkit = require('node-zipkit');
 const fs = require('fs');
 const x2js_constructor = require('x2js');
 var x2js = new x2js_constructor();
-const mysql = require('mysql');
+const dmarcStorage = require('./dmarc-storage.js');
 
 try {
     var config = JSON.parse(fs.readFileSync('./config.json'));
@@ -16,35 +16,13 @@ try {
     process.exit(1);
 }
 
-var dmarcstorage = new DMARCStorageMySQL(config.mysql);
+var dmarcstorage = new dmarcStorage.DMARCStorageMySQL(config.mysql);
+
 var filename = '/tmp/hotmail.com!riceball.com!1467691200!1467777600.zip';
 var xml = DMARCXmlFromZipFile(filename);
-console.log(DMARCXMLToRows(xml));
-
-function DMARCStorageMySQL(config) {
-    this.connection = mysql.createConnection(config);
-    this.created = false;
-}
-DMARCStorageMySQL.prototype.insert = function(row) {
-    var connection = this.connection;
-    connection.query({
-        sql: "INSERT INTO foo (a,b,c) VALUES (?,?,?)",
-        values: [abc]
-    }, function(err, results, fields) {
-    });
-};
-DMARCStorageMySQL.prototype.end = function() {
-};
-DMARCStorageMySQL.prototype.create = function() {
-    // create the table if it doesn't exist
-    if (this.created) return;
-    // does table exist
-    // then this.created = true; return;
-    // else
-    // create the table
-};
-
-
+DMARCXMLToRows(xml).map(function (row) {
+    dmarcstorage.insert(row);
+});
 
 function DMARCXMLToRows(xml) {
     var document = x2js.xml2js(xml);
@@ -62,8 +40,8 @@ function DMARCXMLToRows(xml) {
 
     return rows.map(function (row) {
         var sourceIP = row.row.source_ip;
-        var count = row.row.count;
-        return [ orgName, beginTime, endTime, sourceIP, count ];
+        var mailCount = row.row.count;
+        return [ orgName, beginTime, endTime, sourceIP, mailCount ];
     });
 }
 
