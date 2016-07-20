@@ -1,9 +1,16 @@
 {
-    imap: {
-        user: 'johnk@example.com',
-        password: '',
-        host: 'smtp.example.com',
-        port: 993,
-        tls: true
+    "imap": {
+        "user": 'johnk@example.com',
+        "password": '',
+        "host": 'smtp.example.com',
+        "port": 993,
+        "tls": true
+    },
+    "mysql": {
+        "socketPath": "/var/run/mysqld/mysqld.sock",
+        "host": "localhost",
+        "user": "dmarc",
+        "password": "dmarcsecret",
+        "database": "dmarc"
     }
 }
