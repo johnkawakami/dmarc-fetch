@@ -12,5 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "mysql": "^2.11.1",
+    "node-zipkit": "^0.1.1",
+    "x2js": "^2.0.1"
   }
 }

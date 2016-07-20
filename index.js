@@ -22,14 +22,21 @@ imaps.connect(config)
     search.DMARCReport()
     .then(function (messages) {
         var m = messages
-            .filter(function(message) {
-                return (message.dmarc.submitter === 'google.com');
-            })
             .map(function(message) {
-                return dig.saveZipBody({}, message);
-                // return dig.saveFirstZipAttachment({}, message);
-                //var fn = message.dmarc.reportID + ".txt";
-                //return dig.saveFirstTextPlain({filename:fn}, message);
+                if (message.dmarc.submitter === 'google.com') {
+                    var file = dig.saveZipBody({}, message);
+                    return file;
+                }
+                else if (message.dmarc.submitter === 'hotmail.com') {
+                    var file = dig.saveFirstZipAttachment({}, message);
+                    return file;
+                }
+                else if (message.dmarc.submitter === 'yahoo.com') {
+                    var file = dig.saveFirstZipAttachment({}, message);
+                    return file;
+                } else {
+                    console.log("Unknown service " + message.dmarc.submitter);
+                }
             });
 
         return Promise.all(m);
@@ -155,16 +162,14 @@ IMAPDig.prototype.saveFirstZipAttachment = function(config, message) {
     var first = message.partsMeta.find(function (element, index, array) {
         return element.type === 'application' && 
             ( element.subtype === 'x-zip-compressed' || 
-                element.subtype === 'zip-compressed' );
+                element.subtype === 'zip' );
     });
-    console.log(first);
     return connection.getPartData(message, first)
     .then(function(partData) {
         var filename = config.filename || 
             first.disposition.params.filename || 
             'attachment.zip';
         var filepath = directory + "/" + filename;
-        console.log(filepath);
         fs.writeFileSync(filepath, partData, {flag:'w'});
         return filepath;
     })
@@ -192,26 +197,71 @@ IMAPDig.prototype.saveZipBody = function(config, message) {
     // find the headers parts
     var headers = message.parts.filter(function (a) {
         return (a.which === 'HEADER');
-    });
-    console.log(headers[0].body);
-    return connection.getPartData(message)
-    .then(function(partData) {
-        var filename = config.filename || 
-            message.headers.filename || 
-            'attachment.zip';
-        var filepath = directory + "/" + filename;
-        console.log(filepath);
-        // fs.writeFileSync(filepath, partData, {flag:'w'});
-        return filepath;
-    })
-    .catch(function(err) {
-    });
+    })[0].body;
+    var contentTypeHeader = parseEmailHeaderLine(headers['content-type']);
+    var contentDispositionHeader = parseEmailHeaderLine(headers['content-disposition']);
+    var contentTransferEncoding = headers['content-transfer-encoding'][0].toUpperCase();
+
+    var body = message.parts.filter(function (a) {
+        return (a.which === 'TEXT');
+    })[0].body;
+
+    var buffer;
+    if (contentTransferEncoding === 'BASE64') {
+        buffer = new Buffer(body, 'base64');
+    } else {
+        console.log('Unknown encoding ' + contentTransferEncoding);
+        return;
+    }
+    
+    var filename = config.filename || 
+        contentDispositionHeader.attributes.filename || 
+        contentTypeHeader.attributes.name || 
+        'attachment.zip';
+    var filepath = directory + "/" + filename;
+    fs.writeFileSync(filepath, buffer, {flag:'w'});
+    return filepath;
 };
 
 /**
- * Input looks like:
+ * Input looks like an array of strings:
  * [ 'application/zip; \tname="google.com!riceball.com!1468540800!1468627199.zip"' ]
- * @returns { value: value, attributes: { name: value, ... }}
+ * @returns { value: application/zip, attributes: { name: _thename_ }}
+ *
+ * fixme - this probably doesn't conform to the RFC for email headers.
  */
-function parseEmailHeaderLine(line) {
+function parseEmailHeaderLine(lines) {
+    var result = {};
+    var line = lines.join("\n");
+    var parts = line.split(/;/);
+    parts = parts.map(function(a) { return a.trim(); });
+
+    // if the first element doesn't contain an '=', it's the value
+    if (! parts[0].match(/=/) ) {
+        result.value = parts[0];
+        parts.shift();
+    }
+
+    var attributes = {};
+    parts.map(function (a) {
+        var side = a.split(/=/);
+        var obj = {};
+        if (side[1].match(/^".+"$/)) {
+            side[1] = side[1].slice(1,-1);
+        }
+        attributes[side[0]] = side[1];
+    });
+    result.attributes = attributes;
+    return result;
 }
+
+function DMARCXmlFromZipFile(filepath) {
+    var dirname = filepath.replace(/\.[a-z]+?$/, '');
+    zipkit.unzipSync(filepath, dirname);
+
+    var xmlFileName = path.basename(filepath, '.zip') + '.xml';
+    var xml = fs.readFileSync(dirname + path.sep + xmlFileName, 
+                              {encoding:'utf8'});
+    return xml;
+};
+
