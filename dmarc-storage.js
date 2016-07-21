@@ -3,7 +3,6 @@ const mysql = require('mysql');
 
 function DMARCStorageMySQL(config) {
     this.connection = mysql.createConnection(config);
-    this.created = false;
     this.connection.connect(function(err) {
         if (err) {
             if (err.code==='ER_ACCESS_DENIED_ERROR') {
@@ -35,9 +34,8 @@ function DMARCStorageMySQL(config) {
 }
 DMARCStorageMySQL.prototype.insert = function(row) {
     var connection = this.connection;
-    this.create();
-    connection.query({
-            sql: "INSERT INTO dmarc (org_name, begin_time, end_time, source_ip, mail_count) VALUES (?,?,?,?,?)",
+    return connection.query({
+        sql: "INSERT INTO dmarc.dmarc (org_name, begin_time, end_time, source_ip, mail_count) VALUES (?,?,?,?,?)",
         values: row
     }, function(err, results, fields) {
         if (err) {
@@ -48,35 +46,57 @@ DMARCStorageMySQL.prototype.insert = function(row) {
         }
     });
 };
+/**
+ * Call end() to wait until all the inserts finish.
+ */
 DMARCStorageMySQL.prototype.end = function() {
+    console.log('closing the connection');
+    this.connection.end(function (err) {
+        if (err) {
+            console.error(err);
+        }
+    });
 };
+// delete create. stop using it.
 DMARCStorageMySQL.prototype.create = function() {
+    console.log('create called');
     // create the table if it doesn't exist
-    if (this.created) return;
+    if (this.created===true) return;
 
     var connection = this.connection;
     // does table exist
-    connection.query("SHOW TABLES LIKE 'dmarc'", function(err, result) {
+    connection.beginTransaction(function (err) {
         if (err) {
-            console.log(err);
-            process.exit();
+            console.error(err);
+            process.exit(-1);
         }
-        if (result) {
-            console.log(result);
-            if (result.length === 1) {
-                this.created = true;
-                return;
-            } else {
-                connection.query(
-                    "CREATE TABLE dmarc (org_name varchar(255), begin_time varchar(255), end_time varchar(255), source_ip varchar(128), mail_count int(11))"
-                );
-                this.created = true;
-                return;
+        console.log('checking that the table exists');
+        connection.query("SHOW TABLES LIKE 'dmarc'", function(err, result) {
+            if (err) {
+                console.error(err);
             }
-        }
+            if (result) {
+                if (result.length === 1) {
+                    console.log("dmarc table found.");
+                    this.created = true;
+                    return;
+                } else {
+                    console.log("dmarc table not found. Creating.");
+                    connection.query(
+                        "CREATE TABLE dmarc (org_name varchar(255), begin_time varchar(255), end_time varchar(255), source_ip varchar(128), mail_count int(11))"
+                    );
+                    this.created = true;
+                    return;
+                }
+            } else {
+                console.log('no result!!!');
+                console.log(result);
+            }
+        });
+        // then this.created = true; return;
+        console.log('committing');
+        connection.commit();
     });
-    // then this.created = true; return;
-    return;
 };
 
 module.exports = {

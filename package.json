@@ -12,8 +12,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "imap-simple": "^1.6.2",
     "mysql": "^2.11.1",
-    "node-zipkit": "^0.1.1",
+    "node-zipkit": "^0.1.2",
     "x2js": "^2.0.1"
   }
 }

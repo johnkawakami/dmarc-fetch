@@ -4,25 +4,28 @@ const fs= require('fs');
 const imaps = require('imap-simple');
 const crypto = require('crypto');
 const hash = crypto.createHash('sha256');
-
+const dmarcStorage = require('./dmarc-storage.js');
+const dmarcExtract = require('./dmarc-extract.js');
+const imapDmarc = require('./imap-dmarc.js');
+var config;
 try {
-    var config = JSON.parse(fs.readFileSync('./config.json'));
+    config = JSON.parse(fs.readFileSync('./config.json'));
 } catch (err) {
     console.log('unable to read config file');
     console.log(err);
     process.exit(1);
 }
 
-
 imaps.connect(config)
 .then(function (connection) {
     console.log('connected');
-    var search = new IMAPSearcher(connection);
-    var dig = new IMAPDig(connection);
+    var search = new imapDmarc.Search(connection);
+    var dig = new imapDmarc.Dig(connection);
     search.DMARCReport()
     .then(function (messages) {
         var m = messages
             .map(function(message) {
+                console.log(message.dmarc.submitter);
                 if (message.dmarc.submitter === 'google.com') {
                     var file = dig.saveZipBody({}, message);
                     return file;
@@ -41,8 +44,22 @@ imaps.connect(config)
 
         return Promise.all(m);
     })
-    .then(console.log)
-    .then(process.exit);
+    .catch(function (err) {
+        console.log(err);
+        process.exit();
+    })
+    .then(function (files) {
+        var dmarcstorage = new dmarcStorage.DMARCStorageMySQL(config.mysql);
+        var results = files.map(function (filename) {
+            var xml = dmarcExtract.FromZipFile(filename);
+            return dmarcExtract.XMLToRows(xml).map(function (row) {
+                return dmarcstorage.insert(row);
+            });
+        });
+        dmarcstorage.end();
+        // console.log(results);
+        return results;
+    });
 })
 .catch(function(err) {
     console.log("error");
@@ -50,218 +67,4 @@ imaps.connect(config)
     process.exit(1);
 });
 
-
-function IMAPSearcher(connection) {
-    this.connection = connection;
-}
-
-/*
- * Finds all the DMARC messages based on the subject
- * line format, and then appends some metadata to the messages.
- * @return Promise that resolves to a list of messages.
- *
- * The partsMeta attribute is the result of calling getParts
- * to get the body parts.
- *
- * Metadata looks like this:
- *   dmarc:
-     { reportDomain: 'riceball.com',
-       submitter: 'google.com',
-       reportID: '16778013222784109649' } }
-    partsMeta:
-    [ Object, object ]
- *
- */
-IMAPSearcher.prototype.DMARCReport = function() {
-    var connection = this.connection;
-    return connection.openBox('INBOX')
-    .then(function () {
-        var searchCriteria = [
-            ['SUBJECT', 'Report domain:'],
-            ['SUBJECT', 'Submitter:'],
-            ['SUBJECT', 'Report-ID:']
-        ];
-
-        var fetchOptions = {
-            bodies: ['HEADER', 'TEXT'],
-            markSeen: false,
-            struct: true
-        };
-
-        return connection.search(searchCriteria, fetchOptions)
-        .then(function(result) {
-            var augmented = result.map(function (a) {
-                var subject = a.parts[0].body.subject;
-                var parts =
-                    /Report domain: (.+) Submitter: (.+) Report-ID: (.+)$/i
-                    .exec(subject);
-                a['dmarc'] = {
-                    reportDomain: parts[1],
-                    submitter: parts[2],
-                    reportID: parts[3]
-                };
-                var partsMeta = imaps.getParts(a.attributes.struct);
-                a['partsMeta'] = partsMeta;
-                return a;
-            });
-            return augmented;
-        })
-        .catch(function(error) {
-            console.log(error);
-        });
-    })
-    .catch(function (error) {
-        console.log(error);
-    });
-};
-
-
-
-/*
- * Library to Dig into a message and save the body or attachment.
- *
- * var config = {
- *   directory: /full/path/to/directory
- *   filename: specific filename
- * }
- *
- * Google sends a base64 encoded zip file as the body.
- * Hotmail sends a multipart/mixed body with two parts, the
- * second part bein g the zip file.
- * Yahoo sends a multipart/mixed similar to Hotmail.
- */
-
-function IMAPDig(connection) {
-    this.directory = '/tmp';
-    this.connection = connection;
-}
-IMAPDig.prototype.saveFirstTextPlain = function(config, message) {
-    var connection = this.connection;
-    var filename = config.filename || 'text.txt';
-    var directory = config.directory || this.directory;
-    var filepath = directory + "/" + filename;
-    var first = message.partsMeta.find(function (element, index, array) {
-        return element.type === 'text' && element.subtype === 'plain';
-    });
-    return connection.getPartData(message, first)
-    .then(function (partData) {
-        fs.writeFileSync(filepath, partData, {flag:'w'});
-        return filepath;
-    })
-    .catch(function(err) {
-        console.log(err);
-    });
-};
-
-/*
- * Yahoo and Hotmail
- */
-IMAPDig.prototype.saveFirstZipAttachment = function(config, message) {
-    var connection = this.connection;
-    var directory = config.directory || this.directory;
-    var first = message.partsMeta.find(function (element, index, array) {
-        return element.type === 'application' && 
-            ( element.subtype === 'x-zip-compressed' || 
-                element.subtype === 'zip' );
-    });
-    return connection.getPartData(message, first)
-    .then(function(partData) {
-        var filename = config.filename || 
-            first.disposition.params.filename || 
-            'attachment.zip';
-        var filepath = directory + "/" + filename;
-        fs.writeFileSync(filepath, partData, {flag:'w'});
-        return filepath;
-    })
-    .catch(function(err) {
-    });
-};
-
-/*
- * Gmail
- */
-IMAPDig.prototype.saveZipBody = function(config, message) {
-    var connection = this.connection;
-    var directory = config.directory || this.directory;
-    /*
-     * fixme
-     * Here we have to read the header objects to find
-     * the filename, mime type, etc.
-     * Headers are:
-     *
-     * Content-Type: application/zip; name="....zip"
-     * Content-Disposition: attachment; filename="....zip"
-     * Content-Transfer-Encoding: base64
-     */
-    //var subject = a.parts[0].body.subject;
-    // find the headers parts
-    var headers = message.parts.filter(function (a) {
-        return (a.which === 'HEADER');
-    })[0].body;
-    var contentTypeHeader = parseEmailHeaderLine(headers['content-type']);
-    var contentDispositionHeader = parseEmailHeaderLine(headers['content-disposition']);
-    var contentTransferEncoding = headers['content-transfer-encoding'][0].toUpperCase();
-
-    var body = message.parts.filter(function (a) {
-        return (a.which === 'TEXT');
-    })[0].body;
-
-    var buffer;
-    if (contentTransferEncoding === 'BASE64') {
-        buffer = new Buffer(body, 'base64');
-    } else {
-        console.log('Unknown encoding ' + contentTransferEncoding);
-        return;
-    }
-    
-    var filename = config.filename || 
-        contentDispositionHeader.attributes.filename || 
-        contentTypeHeader.attributes.name || 
-        'attachment.zip';
-    var filepath = directory + "/" + filename;
-    fs.writeFileSync(filepath, buffer, {flag:'w'});
-    return filepath;
-};
-
-/**
- * Input looks like an array of strings:
- * [ 'application/zip; \tname="google.com!riceball.com!1468540800!1468627199.zip"' ]
- * @returns { value: application/zip, attributes: { name: _thename_ }}
- *
- * fixme - this probably doesn't conform to the RFC for email headers.
- */
-function parseEmailHeaderLine(lines) {
-    var result = {};
-    var line = lines.join("\n");
-    var parts = line.split(/;/);
-    parts = parts.map(function(a) { return a.trim(); });
-
-    // if the first element doesn't contain an '=', it's the value
-    if (! parts[0].match(/=/) ) {
-        result.value = parts[0];
-        parts.shift();
-    }
-
-    var attributes = {};
-    parts.map(function (a) {
-        var side = a.split(/=/);
-        var obj = {};
-        if (side[1].match(/^".+"$/)) {
-            side[1] = side[1].slice(1,-1);
-        }
-        attributes[side[0]] = side[1];
-    });
-    result.attributes = attributes;
-    return result;
-}
-
-function DMARCXmlFromZipFile(filepath) {
-    var dirname = filepath.replace(/\.[a-z]+?$/, '');
-    zipkit.unzipSync(filepath, dirname);
-
-    var xmlFileName = path.basename(filepath, '.zip') + '.xml';
-    var xml = fs.readFileSync(dirname + path.sep + xmlFileName, 
-                              {encoding:'utf8'});
-    return xml;
-};
 
