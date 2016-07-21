@@ -9,8 +9,8 @@ function XMLToRows(xml) {
     var document = x2js.xml2js(xml);
 
     var orgName = document.feedback.report_metadata.org_name;
-    var beginTime = document.feedback.report_metadata.date_range.begin;
-    var endTime = document.feedback.report_metadata.date_range.end;
+    var beginTime = parseInt(document.feedback.report_metadata.date_range.begin);
+    var endTime = parseInt(document.feedback.report_metadata.date_range.end);
 
     // if record is not an array, it's just one item
     // if it's an array it's multiple items

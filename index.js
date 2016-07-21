@@ -16,6 +16,23 @@ try {
     process.exit(1);
 }
 
+function insertDMARC(filename, dmarcStorage) {
+    try {
+        var storage = new dmarcStorage.DMARCStorageMySQL(config.mysql);
+        var xml = dmarcExtract.FromZipFile(filename);
+        dmarcExtract.XMLToRows(xml).map(function (row) {
+            storage.insert(row);
+        });
+        storage.end();
+        console.log("Save", filename, "to database.");
+        return true;
+    } catch(err) {
+        console.error(filename, "failed to save to database.");
+        console.error(err);
+        return false;
+    }
+}
+
 imaps.connect(config)
 .then(function (connection) {
     console.log('connected');
@@ -27,38 +44,38 @@ imaps.connect(config)
             .map(function(message) {
                 console.log(message.dmarc.submitter);
                 if (message.dmarc.submitter === 'google.com') {
-                    var file = dig.saveZipBody({}, message);
-                    return file;
-                }
-                else if (message.dmarc.submitter === 'hotmail.com') {
-                    var file = dig.saveFirstZipAttachment({}, message);
-                    return file;
+                    return dig.saveZipBody({}, message)
+                    .then(function(file) {
+                        insertDMARC(file, dmarcStorage);
+                    });
                 }
                 else if (message.dmarc.submitter === 'yahoo.com') {
-                    var file = dig.saveFirstZipAttachment({}, message);
-                    return file;
+                    return dig.saveFirstZipAttachment({}, message)
+                    .then(function(file) {
+                        insertDMARC(file, dmarcStorage);
+                    })
+                    .then(function(message){
+                        // delete message from imap
+                    });
+                }
+                else if (message.dmarc.submitter === 'hotmail.com') {
+                    return dig.saveFirstZipAttachment({}, message)
+                    .then(function(file) {
+                        insertDMARC(file, dmarcStorage);
+                    });
                 } else {
                     console.log("Unknown service " + message.dmarc.submitter);
                 }
             });
-
         return Promise.all(m);
+    })
+    .then(function () {
+        // Wait one second to exit, so inserts can complete.
+        setTimeout(process.exit, 1000);
     })
     .catch(function (err) {
         console.log(err);
         process.exit();
-    })
-    .then(function (files) {
-        var dmarcstorage = new dmarcStorage.DMARCStorageMySQL(config.mysql);
-        var results = files.map(function (filename) {
-            var xml = dmarcExtract.FromZipFile(filename);
-            return dmarcExtract.XMLToRows(xml).map(function (row) {
-                return dmarcstorage.insert(row);
-            });
-        });
-        dmarcstorage.end();
-        // console.log(results);
-        return results;
     });
 })
 .catch(function(err) {

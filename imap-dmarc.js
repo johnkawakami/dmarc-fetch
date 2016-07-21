@@ -175,7 +175,7 @@ Dig.prototype.saveZipBody = function(config, message) {
     var filepath = directory + "/" + filename;
     console.log('Writing', filepath);
     fs.writeFileSync(filepath, buffer, {flag:'w'});
-    return filepath;
+    return Promise.resolve(filepath);
 };
 
 /**

@@ -42,7 +42,7 @@ DMARCStorageMySQL.prototype.insert = function(row) {
             console.log(err);
         }
         if (results) {
-            console.log(results);
+            console.log("Inserted", row[0], row[1]);
         }
     });
 };
@@ -57,7 +57,7 @@ DMARCStorageMySQL.prototype.end = function() {
         }
     });
 };
-// delete create. stop using it.
+// delete create. stop using it. Use a setup script instead. fixme
 DMARCStorageMySQL.prototype.create = function() {
     console.log('create called');
     // create the table if it doesn't exist
