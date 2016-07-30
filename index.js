@@ -36,17 +36,21 @@ function insertDMARC(filename, dmarcStorage) {
 imaps.connect(config)
 .then(function (connection) {
     console.log('connected');
+
     var search = new imapDmarc.Search(connection);
     var dig = new imapDmarc.Dig(connection);
     search.DMARCReport()
     .then(function (messages) {
         var m = messages
             .map(function(message) {
-                console.log(message.dmarc.submitter);
                 if (message.dmarc.submitter === 'google.com') {
                     return dig.saveZipBody({}, message)
                     .then(function(file) {
                         insertDMARC(file, dmarcStorage);
+                    })
+                    .then(function() {
+                        return connection.moveMessage(message.attributes.uid, "INBOX.Trash")
+                            .catch(function(err) { console.error(err) });
                     });
                 }
                 else if (message.dmarc.submitter === 'yahoo.com') {
@@ -54,14 +58,19 @@ imaps.connect(config)
                     .then(function(file) {
                         insertDMARC(file, dmarcStorage);
                     })
-                    .then(function(message){
-                        // delete message from imap
+                    .then(function(){
+                        return connection.moveMessage(message.attributes.uid, "INBOX.Trash")
+                            .catch(function(err) { console.error(err) });
                     });
                 }
                 else if (message.dmarc.submitter === 'hotmail.com') {
                     return dig.saveFirstZipAttachment({}, message)
                     .then(function(file) {
                         insertDMARC(file, dmarcStorage);
+                    })
+                    .then(function() {
+                        return connection.moveMessage(message.attributes.uid, "INBOX.Trash")
+                            .catch(function(err) { console.error(err) });
                     });
                 } else {
                     console.log("Unknown service " + message.dmarc.submitter);
