@@ -35,7 +35,7 @@ function DMARCStorageMySQL(config) {
 DMARCStorageMySQL.prototype.insert = function(row) {
     var connection = this.connection;
     return connection.query({
-        sql: "INSERT INTO dmarc.dmarc (org_name, begin_time, end_time, source_ip, mail_count) VALUES (?,?,?,?,?)",
+        sql: "INSERT IGNORE INTO dmarc.dmarc (org_name, begin_time, end_time, source_ip, mail_count) VALUES (?,?,?,?,?)",
         values: row
     }, function(err, results, fields) {
         if (err) {
@@ -55,47 +55,6 @@ DMARCStorageMySQL.prototype.end = function() {
         if (err) {
             console.error(err);
         }
-    });
-};
-// delete create. stop using it. Use a setup script instead. fixme
-DMARCStorageMySQL.prototype.create = function() {
-    console.log('create called');
-    // create the table if it doesn't exist
-    if (this.created===true) return;
-
-    var connection = this.connection;
-    // does table exist
-    connection.beginTransaction(function (err) {
-        if (err) {
-            console.error(err);
-            process.exit(-1);
-        }
-        console.log('checking that the table exists');
-        connection.query("SHOW TABLES LIKE 'dmarc'", function(err, result) {
-            if (err) {
-                console.error(err);
-            }
-            if (result) {
-                if (result.length === 1) {
-                    console.log("dmarc table found.");
-                    this.created = true;
-                    return;
-                } else {
-                    console.log("dmarc table not found. Creating.");
-                    connection.query(
-                        "CREATE TABLE dmarc (org_name varchar(255), begin_time varchar(255), end_time varchar(255), source_ip varchar(128), mail_count int(11))"
-                    );
-                    this.created = true;
-                    return;
-                }
-            } else {
-                console.log('no result!!!');
-                console.log(result);
-            }
-        });
-        // then this.created = true; return;
-        console.log('committing');
-        connection.commit();
     });
 };
 
