@@ -6,7 +6,19 @@ account, unzips them, and inserts some data into a MySQL database.
 It's factored out so it's not too hard to code objects to fetch different
 kinds of mail, and store into other databases.
 
-It's finished, but it's not polished.
+## ToDo
+
+The xml attachment extraction strategies are determined
+by the sender's domain. This has to be made more
+generic. So far there are two ways to send the attachment:
+
+* File in the body
+* File as first attachment
+
+And there are two compressions:
+
+* Zip file with similarly named XML file inside
+* Gzip compressed XML file
 
 ## Troubleshooting
 
