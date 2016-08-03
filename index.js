@@ -1,6 +1,7 @@
 #! /usr/bin/env node
 
-const fs= require('fs');
+const fs = require('fs');
+const path = require('path');
 const imaps = require('imap-simple');
 const crypto = require('crypto');
 const hash = crypto.createHash('sha256');
@@ -9,7 +10,7 @@ const dmarcExtract = require('./dmarc-extract.js');
 const imapDmarc = require('./imap-dmarc.js');
 var config;
 try {
-    config = JSON.parse(fs.readFileSync('./config.json'));
+    config = JSON.parse(fs.readFileSync(__dirname + '/config.json'));
 } catch (err) {
     console.log('unable to read config file');
     console.log(err);
@@ -19,12 +20,18 @@ try {
 function insertDMARC(filename, dmarcStorage) {
     try {
         var storage = new dmarcStorage.DMARCStorageMySQL(config.mysql);
-        var xml = dmarcExtract.FromZipFile(filename);
+        var xml;
+        if (filename.match(/.zip$/)) {
+            xml = dmarcExtract.FromZipFile(filename);
+        } else {
+            xml = dmarcExtract.FromGzFile(filename);
+        }
         dmarcExtract.XMLToRows(xml).map(function (row) {
+            console.log('inserting', row);
             storage.insert(row);
         });
         storage.end();
-        console.log("Save", filename, "to database.");
+        console.log("Saved", filename, "to database.");
         return true;
     } catch(err) {
         console.error(filename, "failed to save to database.");
@@ -43,6 +50,7 @@ imaps.connect(config)
     .then(function (messages) {
         var m = messages
             .map(function(message) {
+                console.log(message.dmarc.submitter);
                 if (message.dmarc.submitter === 'google.com') {
                     return dig.saveZipBody({}, message)
                     .then(function(file) {
@@ -65,6 +73,16 @@ imaps.connect(config)
                 }
                 else if (message.dmarc.submitter === 'hotmail.com') {
                     return dig.saveFirstZipAttachment({}, message)
+                    .then(function(file) {
+                        insertDMARC(file, dmarcStorage);
+                    })
+                    .then(function() {
+                        return connection.moveMessage(message.attributes.uid, "INBOX.Trash")
+                            .catch(function(err) { console.error(err) });
+                    });
+                }
+                else if (message.dmarc.submitter === 'qq.com') {
+                    return dig.saveFirstGzAttachment({}, message)
                     .then(function(file) {
                         insertDMARC(file, dmarcStorage);
                     })

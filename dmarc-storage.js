@@ -38,11 +38,10 @@ DMARCStorageMySQL.prototype.insert = function(row) {
         sql: "INSERT IGNORE INTO dmarc.dmarc (org_name, begin_time, end_time, source_ip, mail_count) VALUES (?,?,?,?,?)",
         values: row
     }, function(err, results, fields) {
-        if (err) {
-            console.log(err);
-        }
-        if (results) {
+        if (!err) {
             console.log("Inserted", row[0], row[1]);
+        } else {
+            console.log(err);
         }
     });
 };

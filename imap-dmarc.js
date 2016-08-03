@@ -44,8 +44,9 @@ Search.prototype.DMARCReport = function() {
             console.log('DMARCReport: found', result.length);
             var augmented = result.map(function (a) {
                 var subject = a.parts[0].body.subject;
+                console.log(subject);
                 var parts =
-                    /Report domain: (.+) Submitter: (.+) Report-ID: (.+)$/i
+                    /Report domain:[ ]*(.+) Submitter:[ ]*(.+) Report-ID:[ ]*(.+)$/i
                     .exec(subject);
                 a['dmarc'] = {
                     reportDomain: parts[1],
@@ -116,6 +117,30 @@ Dig.prototype.saveFirstZipAttachment = function(config, message) {
         return element.type === 'application' && 
             ( element.subtype === 'x-zip-compressed' || 
                 element.subtype === 'zip' );
+    });
+    return connection.getPartData(message, first)
+    .then(function(partData) {
+        var filename = config.filename || 
+            first.disposition.params.filename || 
+            'attachment.zip';
+        var filepath = directory + "/" + filename;
+        fs.writeFileSync(filepath, partData, {flag:'w'});
+        return filepath;
+    })
+    .catch(function(err) {
+    });
+};
+/*
+ * QQ
+ */
+Dig.prototype.saveFirstGzAttachment = function(config, message) {
+    console.log('Dig.saveFirstGzAttachment');
+    var connection = this.connection;
+    var directory = config.directory || this.directory;
+    var first = message.partsMeta.find(function (element, index, array) {
+        return element.type === 'application' && 
+            ( element.subtype === 'octet-stream' || 
+                element.subtype === 'gzip' );
     });
     return connection.getPartData(message, first)
     .then(function(partData) {

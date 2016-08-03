@@ -1,8 +1,8 @@
-
-const zipkit = require('node-zipkit');
 const fs = require('fs');
+const zipkit = require('node-zipkit');
 const path = require('path');
 const x2js_constructor = require('x2js');
+const zlib = require('zlib');
 var x2js = new x2js_constructor();
 
 function XMLToRows(xml) {
@@ -25,13 +25,21 @@ function XMLToRows(xml) {
     });
 }
 
-
 function FromZipFile(filepath) {
     var dirname = stripFilenameExtension(filepath);
     zipkit.unzipSync(filepath, dirname);
 
     var xmlFileName = path.basename(filepath, '.zip') + '.xml';
     var xml = fs.readFileSync( dirname + path.sep + xmlFileName, {encoding:'utf8'} );
+    return xml;
+}
+
+/*
+ * This is the gz file from qq.com
+ */
+function FromGzFile(filepath) {
+    var compressed = fs.readFileSync(filepath);
+    var xml = zlib.unzipSync(compressed).toString();
     return xml;
 }
 
@@ -48,5 +56,6 @@ function stripFilenameExtension(filepath) {
 
 module.exports = {
     XMLToRows: XMLToRows,
+    FromGzFile: FromGzFile,
     FromZipFile: FromZipFile
 };
