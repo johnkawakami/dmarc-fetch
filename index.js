@@ -9,11 +9,24 @@ const dmarcStorage = require('./dmarc-storage.js');
 const dmarcExtract = require('./dmarc-extract.js');
 const imapDmarc = require('./imap-dmarc.js');
 var config;
-try {
+
+function file_exists_noerrors(fn) {
+    console.log("testing for", fn);
+    try {
+        fs.accessSync(fn, fs.R_OK);
+        return true;
+    } catch (err) {
+        console.log(err);
+        return false;
+    }
+}
+
+if (file_exists_noerrors(__dirname + '/config.json')) {
     config = JSON.parse(fs.readFileSync(__dirname + '/config.json'));
-} catch (err) {
-    console.log('unable to read config file');
-    console.log(err);
+} else if (file_exists_noerrors(process.env['HOME']+'/.dmarc-fetch')) {
+    config = JSON.parse(fs.readFileSync(process.env['HOME']+'/.dmarc-fetch'));
+} else {
+    console.error("No config file .dmarc-fetch.");
     process.exit(1);
 }
 
